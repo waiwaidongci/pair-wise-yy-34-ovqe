@@ -89,15 +89,20 @@ def make_handler(service: Service, static_dir: str):
                     actor, role = self._identity()
                     del actor
                     self._json(200, {"records": service.list_records(item_id, role)})
+                elif path.startswith("/api/items/") and path.endswith("/close-batches"):
+                    item_id = int(path.split("/")[3])
+                    actor, role = self._identity()
+                    del actor
+                    self._json(200, {"batches": service.list_close_batches(item_id, role)})
+                elif path == "/api/audit":
+                    actor, role = self._identity()
+                    del actor
+                    self._json(200, {"events": service.audit(role)})
                 elif path.startswith("/api/items/"):
                     item_id = int(path.rsplit("/", 1)[-1])
                     actor, role = self._identity()
                     del actor
                     self._json(200, service.get_item(item_id, role))
-                elif path == "/api/audit":
-                    actor, role = self._identity()
-                    del actor
-                    self._json(200, {"events": service.audit(role)})
                 else:
                     self._json(404, {"error": "not_found"})
             except Exception as exc:
@@ -119,6 +124,19 @@ def make_handler(service: Service, static_dir: str):
                     expected = body.get("expected_version")
                     self._json(200, service.transition(
                         item_id, target, expected, actor, role))
+                elif path.startswith("/api/items/") and path.endswith("/close-batches"):
+                    item_id = int(path.split("/")[3])
+                    expected = body.get("expected_version")
+                    self._json(201, service.submit_close(item_id, expected, actor, role))
+                elif path.startswith("/api/close-batches/") and path.endswith("/sign"):
+                    batch_id = int(path.split("/")[3])
+                    self._json(200, service.sign_close(batch_id, actor, role))
+                elif path.startswith("/api/close-batches/") and path.endswith("/reconfirm"):
+                    batch_id = int(path.split("/")[3])
+                    self._json(200, service.reconfirm_batch(batch_id, actor, role))
+                elif path.startswith("/api/records/") and path.endswith("/reinspect"):
+                    record_id = int(path.split("/")[3])
+                    self._json(200, service.reinspect_record(record_id, body, actor, role))
                 else:
                     self._json(404, {"error": "not_found"})
             except Exception as exc:
