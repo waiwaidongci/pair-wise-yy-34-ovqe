@@ -2,14 +2,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 class ErrorKind:
-    VALIDATION="validation"; NOT_FOUND="not_found"; FORBIDDEN="forbidden"; CONFLICT="conflict"
+    VALIDATION="validation"; NOT_FOUND="not_found"; FORBIDDEN="forbidden"; CONFLICT="conflict"; RECOVERABLE="recoverable"
 class DomainError(Exception):
     kind=ErrorKind.VALIDATION
-    def __init__(self,message): super().__init__(message); self.message=message
+    def __init__(self,message,detail=None):
+        super().__init__(message); self.message=message; self.detail=detail if detail is not None else {}
 class ValidationError(DomainError): kind=ErrorKind.VALIDATION
 class NotFoundError(DomainError): kind=ErrorKind.NOT_FOUND
 class PermissionDenied(DomainError): kind=ErrorKind.FORBIDDEN
 class ConflictError(DomainError): kind=ErrorKind.CONFLICT
+class RecoverableError(DomainError):
+    """业务事务已落账，但审计追加等收尾步骤失败；可从检查点恢复。"""
+    kind=ErrorKind.RECOVERABLE
 SEVERITIES=['minor', 'moderate', 'serious', 'fatal']; STATES=['reported', 'investigating', 'corrective_action', 'verification', 'closed']; ROLES=['reporter', 'investigator', 'safety_manager', 'viewer']
 @dataclass(frozen=True)
 class Item:

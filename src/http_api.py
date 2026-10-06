@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from .domain import (ConflictError, DomainError, NotFoundError, PermissionDenied,
-                     ValidationError)
+                     RecoverableError, ValidationError)
 from .service import Service
 
 
@@ -65,13 +65,19 @@ def make_handler(service: Service, static_dir: str):
                 status = 403
             elif isinstance(exc, ConflictError):
                 status = 409
+            elif isinstance(exc, RecoverableError):
+                status = 503
             elif isinstance(exc, ValueError):
                 status = 422
             elif isinstance(exc, DomainError):
                 status = 400
             else:
                 status = 500
-            self._json(status, {"error": exc.__class__.__name__, "message": str(exc)})
+            payload = {"error": exc.__class__.__name__, "message": str(exc)}
+            detail = getattr(exc, "detail", None)
+            if detail:
+                payload["detail"] = detail
+            self._json(status, payload)
 
         def do_GET(self) -> None:
             try:
@@ -98,6 +104,18 @@ def make_handler(service: Service, static_dir: str):
                     actor, role = self._identity()
                     del actor
                     self._json(200, {"events": service.audit(role)})
+                elif path == "/api/closure-batches":
+                    actor, role = self._identity()
+                    del actor
+                    qs = parse_qs(urlparse(self.path).query)
+                    item_id = int(qs["item_id"][0]) if "item_id" in qs else None
+                    status = qs.get("status", [None])[0]
+                    self._json(200, {"batches": service.list_closure_batches(item_id, role, status)})
+                elif path.startswith("/api/closure-batches/"):
+                    batch_id = int(path.split("/")[3])
+                    actor, role = self._identity()
+                    del actor
+                    self._json(200, service.get_closure_batch(batch_id, role))
                 else:
                     self._json(404, {"error": "not_found"})
             except Exception as exc:
@@ -110,15 +128,32 @@ def make_handler(service: Service, static_dir: str):
                 body = self._body()
                 if path == "/api/items":
                     self._json(201, service.create_item(body, actor, role))
+                elif path == "/api/closure-batches/recover":
+                    self._json(200, service.recover_all(role))
                 elif path.startswith("/api/items/") and path.endswith("/records"):
                     item_id = int(path.split("/")[3])
                     self._json(201, service.add_record(item_id, body, actor, role))
+                elif path.startswith("/api/items/") and path.endswith("/closure-batches"):
+                    item_id = int(path.split("/")[3])
+                    self._json(201, service.submit_closure_batch(item_id, body, actor, role))
                 elif path.startswith("/api/items/") and path.endswith("/transition"):
                     item_id = int(path.split("/")[3])
                     target = body.get("target")
                     expected = body.get("expected_version")
                     self._json(200, service.transition(
                         item_id, target, expected, actor, role))
+                elif path.startswith("/api/records/") and path.endswith("/execute"):
+                    record_id = int(path.split("/")[3])
+                    self._json(200, service.execute_measure(record_id, body, actor, role))
+                elif path.startswith("/api/records/") and path.endswith("/verify"):
+                    record_id = int(path.split("/")[3])
+                    self._json(200, service.verify_measure(record_id, body, actor, role))
+                elif path.startswith("/api/closure-batches/") and path.endswith("/confirm"):
+                    batch_id = int(path.split("/")[3])
+                    self._json(200, service.confirm_closure_batch(batch_id, body, actor, role))
+                elif path.startswith("/api/closure-batches/") and path.endswith("/recover"):
+                    batch_id = int(path.split("/")[3])
+                    self._json(200, service.recover_batch(batch_id, role))
                 else:
                     self._json(404, {"error": "not_found"})
             except Exception as exc:
